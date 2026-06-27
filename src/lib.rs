@@ -75,6 +75,26 @@ impl<K: Ord, V, const FANOUT: usize> Default for StackMap<K, V, FANOUT> {
     }
 }
 
+pub struct IterMut<'a, K, V> {
+    inner: &'a mut [MaybeUninit<(K, V)>],
+    index: usize,
+    len: usize,
+}
+
+impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+    type Item = &'a mut (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.len {
+            let ptr = unsafe { self.inner.as_mut_ptr().add(self.index) };
+            self.index += 1;
+            Some(unsafe { (*ptr).assume_init_mut() })
+        } else {
+            None
+        }
+    }
+}
+
 impl<K: Ord, V, const FANOUT: usize> StackMap<K, V, FANOUT> {
     pub const fn new() -> Self {
         Self {
@@ -173,6 +193,14 @@ impl<K: Ord, V, const FANOUT: usize> StackMap<K, V, FANOUT> {
         self.inner[..self.len()]
             .iter()
             .map(|slot| unsafe { slot.assume_init_ref() })
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        IterMut {
+            inner: &mut self.inner[..self.len],
+            index: 0,
+            len: self.len,
+        }
     }
 
     /// Splits this `StackMap` into two. `self` will retain
@@ -364,5 +392,22 @@ impl<K: Ord, V, const FANOUT: usize> StackMap<K, V, FANOUT> {
 
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mut_iter() {
+        let mut map: StackMap<usize, usize, 32> = StackMap::new();
+        map.insert(42, 13);
+
+        for kv in map.iter_mut() {
+            kv.1 += 1;
+        }
+
+        assert_eq!(map.get(&42), Some(&14));
     }
 }
